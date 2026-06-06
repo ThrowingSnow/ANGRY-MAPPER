@@ -41,6 +41,15 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(nfd)
 
+# stb_image (single-header, for window icon loading)
+FetchContent_Declare(
+    stb
+    GIT_REPOSITORY https://github.com/nothings/stb.git
+    GIT_TAG        master
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(stb)
+
 find_package(OpenGL REQUIRED)
 find_package(GLEW   REQUIRED)
 find_package(glfw3 3.3 REQUIRED)
@@ -87,6 +96,7 @@ target_link_libraries(imgui_lib PUBLIC glfw OpenGL::GL)
 # --- Main executable ---
 add_executable(angry-mapper
     src/main.cpp
+    src/stb_impl.cpp
     src/NDISource.cpp
     src/WarpSurface.cpp
     src/MeshWarp.cpp
@@ -96,6 +106,12 @@ add_executable(angry-mapper
 target_include_directories(angry-mapper PRIVATE
     src/
     ${NDI_INCLUDE_DIR}
+    ${stb_SOURCE_DIR}
+)
+
+# Embed the assets path so the binary always finds icon.png
+target_compile_definitions(angry-mapper PRIVATE
+    ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets"
 )
 
 target_link_libraries(angry-mapper PRIVATE

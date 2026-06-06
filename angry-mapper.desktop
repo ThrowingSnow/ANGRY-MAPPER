@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=ANGRY-MAPPER
+Comment=Projection mapping — totally not a virus. Trust me...I'm a dolphin.
+Exec=/home/snow/Projects/ANGRY-MAPPER/build/angry-mapper
+Icon=/home/snow/Projects/ANGRY-MAPPER/assets/icon.png
+Type=Application
+Categories=Graphics;Video;AudioVideo;
+Terminal=false
+StartupNotify=true

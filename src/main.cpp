@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <memory>
 #include <filesystem>
+#include <stb_image.h>
 #include "NDISource.h"
 #include "WarpSurface.h"
 #include "MeshWarp.h"
@@ -71,6 +72,18 @@ int main() {
 
     glewExperimental = GL_TRUE;
     glewInit();
+
+    // Window icon — load assets/icon.png if present
+    {
+        int iw, ih, ic;
+        unsigned char* px = stbi_load(ASSETS_DIR "/icon.png", &iw, &ih, &ic, 4);
+        if (px) {
+            GLFWimage img{ iw, ih, px };
+            glfwSetWindowIcon(window, 1, &img);
+            stbi_image_free(px);
+        }
+    }
+
     NFD_Init();
 
     IMGUI_CHECKVERSION();
