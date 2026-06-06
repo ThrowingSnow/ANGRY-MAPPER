@@ -10,8 +10,9 @@ struct ProjectState {
     int  meshRows     = 4;
     int  meshCols     = 4;
     std::vector<float> meshPts;  // flat (meshRows+1)*(meshCols+1)*2
+    ColorAdj colorAdj;
     int  monitor      = 1;
-    int  activeSource = 0;   // 0 = PipeWire, 1 = NDI
+    int  activeSource = 0;   // 0 = PipeWire/Syphon, 1 = NDI
     std::string ndiSource;
 };
 

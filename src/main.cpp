@@ -119,10 +119,11 @@ int main() {
     auto mesh    = std::make_unique<MeshWarp>();
     auto meshOut = std::make_unique<MeshWarp>();
 
-    int  warpMode    = 0;   // 0 = Quad, 1 = Mesh
-    int  dragIdx     = -1;
-    int  meshDragIdx = -1;
-    bool showOverlay = true;
+    int      warpMode    = 0;   // 0 = Quad, 1 = Mesh
+    int      dragIdx     = -1;
+    int      meshDragIdx = -1;
+    bool     showOverlay = true;
+    ColorAdj colorAdj;          // shared between quad + mesh
 
     static char saveMsg[64] = {};
 
@@ -177,6 +178,9 @@ int main() {
         if (active == ActiveSrc::NDI && ndi->isConnected()) {
             activeTex = ndi->texture(); activeW = ndi->width(); activeH = ndi->height();
         }
+
+        // Sync color adj to all warp instances
+        warp->adj = warpOut->adj = mesh->adj = meshOut->adj = colorAdj;
 
         // ---- Render output window ----
         if (outputWin) {
@@ -259,6 +263,17 @@ int main() {
             }
         }
 
+        // ---- Color Correction ----
+        ImGui::Spacing();
+        ImGui::SeparatorText("Color");
+        ImGui::SetNextItemWidth(-1);
+        ImGui::SliderFloat("Brightness##col", &colorAdj.brightness, -1.f, 1.f, "%.2f");
+        ImGui::SetNextItemWidth(-1);
+        ImGui::SliderFloat("Contrast##col",   &colorAdj.contrast,    0.f, 4.f, "%.2f");
+        ImGui::SetNextItemWidth(-1);
+        ImGui::SliderFloat("Gamma##col",      &colorAdj.gamma,       0.1f,4.f, "%.2f");
+        if (ImGui::Button("Reset Color")) colorAdj = ColorAdj{};
+
         // ---- Monitor / Output ----
         ImGui::Spacing();
         ImGui::SeparatorText("Output");
@@ -303,6 +318,7 @@ int main() {
             ps.meshRows     = mesh->rows;
             ps.meshCols     = mesh->cols;
             ps.meshPts      = mesh->pts;
+            ps.colorAdj     = colorAdj;
             ps.monitor      = selectedMonitor;
             ps.activeSource = (active == ActiveSrc::NDI) ? 1 : 0;
             ps.ndiSource    = ndiConnected;
@@ -321,6 +337,7 @@ int main() {
                         warpMode        = ps.warpMode;
                         mesh->setGrid(ps.meshRows, ps.meshCols);
                         if (!ps.meshPts.empty()) mesh->pts = ps.meshPts;
+                        colorAdj        = ps.colorAdj;
                         selectedMonitor = ps.monitor;
                         active = (ps.activeSource == 1) ? ActiveSrc::NDI : active;
                         ndiConnected    = ps.ndiSource;
@@ -352,6 +369,7 @@ int main() {
                     warpMode        = ps.warpMode;
                     mesh->setGrid(ps.meshRows, ps.meshCols);
                     if (!ps.meshPts.empty()) mesh->pts = ps.meshPts;
+                    colorAdj        = ps.colorAdj;
                     selectedMonitor = ps.monitor;
                     active = (ps.activeSource == 1) ? ActiveSrc::NDI : active;
                     ndiConnected    = ps.ndiSource;

@@ -65,6 +65,9 @@ in  vec2 vUV;
 out vec4 fragColor;
 uniform sampler2D uTex;
 uniform mat3      uH;
+uniform float     uBrightness;
+uniform float     uContrast;
+uniform float     uGamma;
 void main() {
     vec3 t  = uH * vec3(vUV, 1.0);
     vec2 uv = t.xy / t.z;
@@ -72,7 +75,12 @@ void main() {
         fragColor = vec4(0.0, 0.0, 0.0, 1.0);
         return;
     }
-    fragColor = texture(uTex, uv);
+    vec4 s = texture(uTex, uv);
+    vec3 c = s.rgb;
+    c += uBrightness;
+    c  = (c - 0.5) * uContrast + 0.5;
+    c  = pow(max(c, vec3(0.0)), vec3(1.0 / uGamma));
+    fragColor = vec4(clamp(c, 0.0, 1.0), s.a);
 }
 )";
 
@@ -168,6 +176,9 @@ void WarpSurface::render(GLuint texture, int vpX, int vpY, int vpW, int vpH) {
         m_H[2], m_H[5], m_H[8],
     };
     glUniformMatrix3fv(glGetUniformLocation(m_shader, "uH"), 1, GL_FALSE, col);
+    glUniform1f(glGetUniformLocation(m_shader, "uBrightness"), adj.brightness);
+    glUniform1f(glGetUniformLocation(m_shader, "uContrast"),   adj.contrast);
+    glUniform1f(glGetUniformLocation(m_shader, "uGamma"),      adj.gamma);
 
     glBindVertexArray(m_vao);
     glDrawArrays(GL_TRIANGLES, 0, 6);

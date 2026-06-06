@@ -56,9 +56,19 @@ void main() { gl_Position = vec4(aPos, 0.0, 1.0); vUV = aUV; }
     const char* fs = R"(
 #version 330 core
 uniform sampler2D uTex;
+uniform float     uBrightness;
+uniform float     uContrast;
+uniform float     uGamma;
 in  vec2 vUV;
 out vec4 fragColor;
-void main() { fragColor = texture(uTex, vUV); }
+void main() {
+    vec4 s = texture(uTex, vUV);
+    vec3 c = s.rgb;
+    c += uBrightness;
+    c  = (c - 0.5) * uContrast + 0.5;
+    c  = pow(max(c, vec3(0.0)), vec3(1.0 / uGamma));
+    fragColor = vec4(clamp(c, 0.0, 1.0), s.a);
+}
 )";
     GLuint v = compileStage(GL_VERTEX_SHADER,   vs);
     GLuint f = compileStage(GL_FRAGMENT_SHADER, fs);
@@ -69,6 +79,10 @@ void main() { fragColor = texture(uTex, vUV); }
 
     glUseProgram(m_shader);
     glUniform1i(glGetUniformLocation(m_shader, "uTex"), 0);
+    // color uniforms set to identity defaults at init
+    glUniform1f(glGetUniformLocation(m_shader, "uBrightness"), 0.f);
+    glUniform1f(glGetUniformLocation(m_shader, "uContrast"),   1.f);
+    glUniform1f(glGetUniformLocation(m_shader, "uGamma"),      1.f);
 
     glGenVertexArrays(1, &m_vao);
     glGenBuffers(1, &m_vbo);
@@ -120,6 +134,9 @@ void MeshWarp::render(GLuint texture, int vpX, int vpY, int vpW, int vpH) {
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, texture);
     glUseProgram(m_shader);
+    glUniform1f(glGetUniformLocation(m_shader, "uBrightness"), adj.brightness);
+    glUniform1f(glGetUniformLocation(m_shader, "uContrast"),   adj.contrast);
+    glUniform1f(glGetUniformLocation(m_shader, "uGamma"),      adj.gamma);
     glBindVertexArray(m_vao);
     glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
     glBufferData(GL_ARRAY_BUFFER,

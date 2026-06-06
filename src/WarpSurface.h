@@ -4,6 +4,12 @@
 
 struct WarpPt { float x, y; };  // normalized [0,1] in viewport space
 
+struct ColorAdj {
+    float brightness = 0.0f;   // additive,  range [-1, +1]
+    float contrast   = 1.0f;   // multiplier, range [0, 4]
+    float gamma      = 1.0f;   // exponent,   range [0.1, 4]
+};
+
 // Corner order: [0]=TL [1]=TR [2]=BR [3]=BL
 class WarpSurface {
 public:
@@ -17,6 +23,7 @@ public:
     void reset(float margin = 0.05f);
 
     std::array<WarpPt, 4> pts;
+    ColorAdj              adj;
 
 private:
     void initGL();

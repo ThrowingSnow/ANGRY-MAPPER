@@ -16,6 +16,9 @@ bool saveProject(const std::string& path, const ProjectState& s) {
         j["meshRows"]     = s.meshRows;
         j["meshCols"]     = s.meshCols;
         j["meshPts"]      = s.meshPts;
+        j["brightness"]   = s.colorAdj.brightness;
+        j["contrast"]     = s.colorAdj.contrast;
+        j["gamma"]        = s.colorAdj.gamma;
 
         auto& pts = j["warp"]["pts"];
         for (const auto& p : s.warpPts)
@@ -44,6 +47,9 @@ bool loadProject(const std::string& path, ProjectState& s) {
         s.meshCols     = j.value("meshCols",     s.meshCols);
         if (j.contains("meshPts"))
             s.meshPts = j["meshPts"].get<std::vector<float>>();
+        s.colorAdj.brightness = j.value("brightness", 0.f);
+        s.colorAdj.contrast   = j.value("contrast",   1.f);
+        s.colorAdj.gamma      = j.value("gamma",      1.f);
 
         const auto& pts = j["warp"]["pts"];
         for (size_t i = 0; i < 4 && i < pts.size(); i++) {
