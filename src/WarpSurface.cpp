@@ -68,6 +68,12 @@ uniform mat3      uH;
 uniform float     uBrightness;
 uniform float     uContrast;
 uniform float     uGamma;
+uniform float     uBlendL, uBlendR, uBlendT, uBlendB;
+#define MAX_MASKS 8
+uniform int   uMaskCount;
+uniform int   uMaskIsCircle[MAX_MASKS];
+uniform vec4  uMaskGeom[MAX_MASKS];     // cx, cy, rx, ry
+uniform float uMaskFeather[MAX_MASKS];
 void main() {
     vec3 t  = uH * vec3(vUV, 1.0);
     vec2 uv = t.xy / t.z;
@@ -80,6 +86,33 @@ void main() {
     c += uBrightness;
     c  = (c - 0.5) * uContrast + 0.5;
     c  = pow(max(c, vec3(0.0)), vec3(1.0 / uGamma));
+    float bx = smoothstep(0.0, max(uBlendL, 0.001), uv.x)
+             * smoothstep(0.0, max(uBlendR, 0.001), 1.0 - uv.x);
+    float by = smoothstep(0.0, max(uBlendT, 0.001), uv.y)
+             * smoothstep(0.0, max(uBlendB, 0.001), 1.0 - uv.y);
+    c *= bx * by;
+    // Masks: vUV is screen UV [0,1]^2 — union of all shapes
+    if (uMaskCount > 0) {
+        float acc = 0.0;
+        for (int i = 0; i < MAX_MASKS; i++) {
+            if (i >= uMaskCount) break;
+            vec2  ctr = uMaskGeom[i].xy;
+            float f   = max(uMaskFeather[i], 0.001);
+            float mi;
+            if (uMaskIsCircle[i] != 0) {
+                float r    = uMaskGeom[i].z;
+                float dist = length(vUV - ctr);
+                mi = 1.0 - smoothstep(r - f, r, dist);
+            } else {
+                float rx = uMaskGeom[i].z, ry = uMaskGeom[i].w;
+                vec2  d  = abs(vUV - ctr) - vec2(rx, ry);
+                float dist = length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);
+                mi = 1.0 - smoothstep(-f, 0.0, dist);
+            }
+            acc = max(acc, mi);
+        }
+        c *= acc;
+    }
     fragColor = vec4(clamp(c, 0.0, 1.0), s.a);
 }
 )";
@@ -179,6 +212,30 @@ void WarpSurface::render(GLuint texture, int vpX, int vpY, int vpW, int vpH) {
     glUniform1f(glGetUniformLocation(m_shader, "uBrightness"), adj.brightness);
     glUniform1f(glGetUniformLocation(m_shader, "uContrast"),   adj.contrast);
     glUniform1f(glGetUniformLocation(m_shader, "uGamma"),      adj.gamma);
+    glUniform1f(glGetUniformLocation(m_shader, "uBlendL"),     blend.left);
+    glUniform1f(glGetUniformLocation(m_shader, "uBlendR"),     blend.right);
+    glUniform1f(glGetUniformLocation(m_shader, "uBlendT"),     blend.top);
+    glUniform1f(glGetUniformLocation(m_shader, "uBlendB"),     blend.bottom);
+
+    // Upload masks
+    int mc = std::min((int)masks.size(), 8);
+    glUniform1i(glGetUniformLocation(m_shader, "uMaskCount"), mc);
+    if (mc > 0) {
+        int   types[8] = {};
+        float geom[32] = {};
+        float feat[8]  = {};
+        for (int i = 0; i < mc; i++) {
+            types[i]     = (masks[i].shape == MaskShape::Circle) ? 1 : 0;
+            geom[i*4+0]  = masks[i].cx;
+            geom[i*4+1]  = masks[i].cy;
+            geom[i*4+2]  = masks[i].rx;
+            geom[i*4+3]  = masks[i].ry;
+            feat[i]      = masks[i].feather;
+        }
+        glUniform1iv(glGetUniformLocation(m_shader, "uMaskIsCircle"), 8, types);
+        glUniform4fv(glGetUniformLocation(m_shader, "uMaskGeom"),     8, geom);
+        glUniform1fv(glGetUniformLocation(m_shader, "uMaskFeather"),  8, feat);
+    }
 
     glBindVertexArray(m_vao);
     glDrawArrays(GL_TRIANGLES, 0, 6);

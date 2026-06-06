@@ -19,6 +19,17 @@ bool saveProject(const std::string& path, const ProjectState& s) {
         j["brightness"]   = s.colorAdj.brightness;
         j["contrast"]     = s.colorAdj.contrast;
         j["gamma"]        = s.colorAdj.gamma;
+        j["blendL"]       = s.blend.left;
+        j["blendR"]       = s.blend.right;
+        j["blendT"]       = s.blend.top;
+        j["blendB"]       = s.blend.bottom;
+
+        auto& jm = j["masks"];
+        for (const auto& m : s.masks)
+            jm.push_back({{"shape", (int)m.shape},
+                          {"cx", m.cx}, {"cy", m.cy},
+                          {"rx", m.rx}, {"ry", m.ry},
+                          {"feather", m.feather}});
 
         auto& pts = j["warp"]["pts"];
         for (const auto& p : s.warpPts)
@@ -50,6 +61,24 @@ bool loadProject(const std::string& path, ProjectState& s) {
         s.colorAdj.brightness = j.value("brightness", 0.f);
         s.colorAdj.contrast   = j.value("contrast",   1.f);
         s.colorAdj.gamma      = j.value("gamma",      1.f);
+        s.blend.left          = j.value("blendL",     0.f);
+        s.blend.right         = j.value("blendR",     0.f);
+        s.blend.top           = j.value("blendT",     0.f);
+        s.blend.bottom        = j.value("blendB",     0.f);
+
+        s.masks.clear();
+        if (j.contains("masks")) {
+            for (const auto& jm : j["masks"]) {
+                Mask m;
+                m.shape   = (MaskShape)jm.value("shape",   0);
+                m.cx      = jm.value("cx",      0.5f);
+                m.cy      = jm.value("cy",      0.5f);
+                m.rx      = jm.value("rx",      0.15f);
+                m.ry      = jm.value("ry",      0.15f);
+                m.feather = jm.value("feather", 0.03f);
+                s.masks.push_back(m);
+            }
+        }
 
         const auto& pts = j["warp"]["pts"];
         for (size_t i = 0; i < 4 && i < pts.size(); i++) {

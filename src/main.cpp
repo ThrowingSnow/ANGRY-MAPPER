@@ -10,7 +10,9 @@
 #include <memory>
 #include <filesystem>
 #include <stb_image.h>
+#ifdef HAVE_NDI
 #include "NDISource.h"
+#endif
 #include "WarpSurface.h"
 #include "MeshWarp.h"
 #include "Project.h"
@@ -93,9 +95,11 @@ int main() {
     ImGui_ImplOpenGL3_Init("#version 330");
 
     // ---- Sources ----
+#ifdef HAVE_NDI
     auto ndi = std::make_unique<NDISource>();
     std::vector<std::string> ndiSources;
     std::string ndiConnected;
+#endif
 
 #ifdef __APPLE__
   #ifdef HAVE_SYPHON
@@ -132,16 +136,25 @@ int main() {
     auto mesh    = std::make_unique<MeshWarp>();
     auto meshOut = std::make_unique<MeshWarp>();
 
-    int      warpMode    = 0;   // 0 = Quad, 1 = Mesh
-    int      dragIdx     = -1;
-    int      meshDragIdx = -1;
-    bool     showOverlay = true;
-    ColorAdj colorAdj;          // shared between quad + mesh
+    int       warpMode    = 0;   // 0 = Quad, 1 = Mesh
+    int       dragIdx     = -1;
+    int       meshDragIdx = -1;
+    int       maskDragIdx = -1;
+    bool      showOverlay = true;
+    ColorAdj  colorAdj;
+    EdgeBlend blend;
+    std::vector<Mask> masks;
 
     static char saveMsg[64] = {};
 
-    GLFWwindow* outputWin       = nullptr;
-    int         selectedMonitor = 1;
+    GLFWwindow* outputWin        = nullptr;
+    bool        outputFullscreen = false;
+    int         selectedMonitor  = 1;
+
+    // FPS tracking
+    double lastFpsTime = glfwGetTime();
+    int    fpsFrames   = 0;
+    float  fps         = 0.f;
 
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
@@ -154,16 +167,34 @@ int main() {
                 if (warpMode == 0) warp->reset(0.f);
                 else { mesh->reset(); meshDragIdx = -1; }
             }
+            if (ImGui::IsKeyPressed(ImGuiKey_F) && outputWin) {
+                int mc; GLFWmonitor** ms = glfwGetMonitors(&mc);
+                if (!outputFullscreen) {
+                    int monIdx = (selectedMonitor < mc) ? selectedMonitor : 0;
+                    GLFWmonitor* mon = ms[monIdx];
+                    const GLFWvidmode* mode = glfwGetVideoMode(mon);
+                    int mx, my; glfwGetMonitorPos(mon, &mx, &my);
+                    glfwSetWindowMonitor(outputWin, mon, mx, my,
+                                         mode->width, mode->height, mode->refreshRate);
+                    outputFullscreen = true;
+                } else {
+                    glfwSetWindowMonitor(outputWin, nullptr, 200, 200, 1280, 720, 0);
+                    outputFullscreen = false;
+                }
+            }
         }
 
         if (outputWin && glfwWindowShouldClose(outputWin)) {
             glfwDestroyWindow(outputWin);
             outputWin = nullptr;
+            outputFullscreen = false;
             glfwMakeContextCurrent(window);
         }
 
         // ---- Update sources ----
+#ifdef HAVE_NDI
         ndi->update();
+#endif
 #ifdef __APPLE__
   #ifdef HAVE_SYPHON
         syphon->update();
@@ -188,12 +219,25 @@ int main() {
             activeTex = pw->texture(); activeW = pw->width(); activeH = pw->height();
         }
 #endif
+#ifdef HAVE_NDI
         if (active == ActiveSrc::NDI && ndi->isConnected()) {
             activeTex = ndi->texture(); activeW = ndi->width(); activeH = ndi->height();
         }
+#endif
 
-        // Sync color adj to all warp instances
-        warp->adj = warpOut->adj = mesh->adj = meshOut->adj = colorAdj;
+        // Sync color + blend + masks to all warp instances
+        warp->adj    = warpOut->adj    = mesh->adj    = meshOut->adj    = colorAdj;
+        warp->blend  = warpOut->blend  = mesh->blend  = meshOut->blend  = blend;
+        warp->masks  = warpOut->masks  = mesh->masks  = meshOut->masks  = masks;
+
+        // FPS
+        fpsFrames++;
+        double now = glfwGetTime();
+        if (now - lastFpsTime >= 1.0) {
+            fps = (float)(fpsFrames / (now - lastFpsTime));
+            fpsFrames = 0;
+            lastFpsTime = now;
+        }
 
         // ---- Render output window ----
         if (outputWin) {
@@ -263,6 +307,7 @@ int main() {
         }
 #endif
 
+#ifdef HAVE_NDI
         // ---- NDI (cross-platform) ----
         ImGui::Spacing();
         ImGui::SeparatorText("NDI");
@@ -275,6 +320,7 @@ int main() {
                 if (ndi->connect(src)) { ndiConnected = src; active = ActiveSrc::NDI; }
             }
         }
+#endif
 
         // ---- Color Correction ----
         ImGui::Spacing();
@@ -286,6 +332,19 @@ int main() {
         ImGui::SetNextItemWidth(-1);
         ImGui::SliderFloat("Gamma##col",      &colorAdj.gamma,       0.1f,4.f, "%.2f");
         if (ImGui::Button("Reset Color")) colorAdj = ColorAdj{};
+
+        // ---- Edge Blend ----
+        ImGui::Spacing();
+        ImGui::SeparatorText("Edge Blend");
+        ImGui::SetNextItemWidth(-1);
+        ImGui::SliderFloat("Left##bl",   &blend.left,   0.f, 0.5f, "%.3f");
+        ImGui::SetNextItemWidth(-1);
+        ImGui::SliderFloat("Right##bl",  &blend.right,  0.f, 0.5f, "%.3f");
+        ImGui::SetNextItemWidth(-1);
+        ImGui::SliderFloat("Top##bl",    &blend.top,    0.f, 0.5f, "%.3f");
+        ImGui::SetNextItemWidth(-1);
+        ImGui::SliderFloat("Bottom##bl", &blend.bottom, 0.f, 0.5f, "%.3f");
+        if (ImGui::Button("Reset Blend")) blend = EdgeBlend{};
 
         // ---- Monitor / Output ----
         ImGui::Spacing();
@@ -309,16 +368,22 @@ int main() {
             if (ImGui::Button("Open Output")) {
                 int monIdx = (selectedMonitor < nMons) ? selectedMonitor : -1;
                 outputWin = openOutputWindow(monIdx, window);
+                outputFullscreen = false;
             }
         } else {
             if (ImGui::Button("Close Output")) {
                 glfwDestroyWindow(outputWin);
                 outputWin = nullptr;
+                outputFullscreen = false;
                 glfwMakeContextCurrent(window);
             }
             ImGui::SameLine();
-            ImGui::TextColored({0.2f,1.f,0.2f,1.f}, "LIVE");
+            ImGui::TextColored({0.2f,1.f,0.2f,1.f},
+                outputFullscreen ? "LIVE [fullscreen]" : "LIVE");
+            ImGui::TextDisabled("F = toggle fullscreen");
         }
+        ImGui::Spacing();
+        ImGui::TextDisabled("%.0f fps", fps);
 
         // ---- Project Save / Load ----
         ImGui::Spacing();
@@ -332,9 +397,13 @@ int main() {
             ps.meshCols     = mesh->cols;
             ps.meshPts      = mesh->pts;
             ps.colorAdj     = colorAdj;
+            ps.blend        = blend;
+            ps.masks        = masks;
             ps.monitor      = selectedMonitor;
+#ifdef HAVE_NDI
             ps.activeSource = (active == ActiveSrc::NDI) ? 1 : 0;
             ps.ndiSource    = ndiConnected;
+#endif
             return ps;
         };
 
@@ -351,9 +420,13 @@ int main() {
                         mesh->setGrid(ps.meshRows, ps.meshCols);
                         if (!ps.meshPts.empty()) mesh->pts = ps.meshPts;
                         colorAdj        = ps.colorAdj;
+                        blend           = ps.blend;
+                        masks           = ps.masks;
                         selectedMonitor = ps.monitor;
+#ifdef HAVE_NDI
                         active = (ps.activeSource == 1) ? ActiveSrc::NDI : active;
                         ndiConnected    = ps.ndiSource;
+#endif
                         snprintf(saveMsg, sizeof(saveMsg), "Restored.");
                     }
                 }
@@ -383,9 +456,13 @@ int main() {
                     mesh->setGrid(ps.meshRows, ps.meshCols);
                     if (!ps.meshPts.empty()) mesh->pts = ps.meshPts;
                     colorAdj        = ps.colorAdj;
+                    blend           = ps.blend;
+                    masks           = ps.masks;
                     selectedMonitor = ps.monitor;
+#ifdef HAVE_NDI
                     active = (ps.activeSource == 1) ? ActiveSrc::NDI : active;
                     ndiConnected    = ps.ndiSource;
+#endif
                     snprintf(saveMsg, sizeof(saveMsg), "Loaded.");
                 } else {
                     snprintf(saveMsg, sizeof(saveMsg), "Load failed!");
@@ -489,7 +566,7 @@ int main() {
 
             if (ImGui::Button("Reset Warp")) warp->reset(0.f);
             ImGui::SameLine();
-            ImGui::TextDisabled("H = overlay  R = reset  | Output on selected monitor");
+            ImGui::TextDisabled("H = overlay  R = reset  F = fullscreen output");
 
         } else {
             // ---- Mesh mode ----
@@ -533,8 +610,126 @@ int main() {
 
             if (ImGui::Button("Reset Mesh")) { mesh->reset(); meshDragIdx = -1; }
             ImGui::SameLine();
-            ImGui::TextDisabled("H = overlay  R = reset  | Output on selected monitor");
+            ImGui::TextDisabled("H = overlay  R = reset  F = fullscreen output");
         }
+
+        // Shift+click on canvas = add circle mask at cursor position
+        if (canvasHovered && ImGui::GetIO().MouseClicked[0] && ImGui::GetIO().KeyShift
+            && (int)masks.size() < 8 && dragIdx == -1 && meshDragIdx == -1) {
+            Mask nm;
+            nm.cx = std::clamp((mp.x - canvasPos.x) / cW, 0.f, 1.f);
+            nm.cy = std::clamp((mp.y - canvasPos.y) / cH, 0.f, 1.f);
+            masks.push_back(nm);
+            maskDragIdx = (int)masks.size() - 1;
+        }
+
+        // ---- Mask overlay + drag (drawn on top of warp overlay) ----
+        if (!ImGui::GetIO().MouseDown[0]) maskDragIdx = -1;
+        for (int i = 0; i < (int)masks.size(); i++) {
+            Mask& m = masks[i];
+            ImVec2 mc = { canvasPos.x + m.cx * cW, canvasPos.y + m.cy * cH };
+
+            float dc = sqrtf((mp.x-mc.x)*(mp.x-mc.x) + (mp.y-mc.y)*(mp.y-mc.y));
+            bool hovC = dc < 12.f && canvasHovered;
+            if (hovC && ImGui::GetIO().MouseDown[0] && maskDragIdx == -1
+                && dragIdx == -1 && meshDragIdx == -1 && canvasActive)
+                maskDragIdx = i;
+            if (maskDragIdx == i) {
+                m.cx = std::clamp((mp.x - canvasPos.x) / cW, 0.f, 1.f);
+                m.cy = std::clamp((mp.y - canvasPos.y) / cH, 0.f, 1.f);
+                mc = { canvasPos.x + m.cx * cW, canvasPos.y + m.cy * cH };
+            }
+
+            bool  isDrag    = (maskDragIdx == i);
+            ImU32 shapeCol  = isDrag  ? IM_COL32(100, 220, 255, 255)
+                            : hovC    ? IM_COL32(80,  190, 255, 220)
+                                      : IM_COL32(60,  140, 255, 180);
+
+            if (m.shape == MaskShape::Circle) {
+                // In UV space a circle becomes an ellipse in a non-square canvas
+                dl->AddEllipse(mc, ImVec2(m.rx * cW, m.rx * cH), shapeCol, 0.f, 64, 2.f);
+            } else {
+                dl->AddRect({ mc.x - m.rx * cW, mc.y - m.ry * cH },
+                             { mc.x + m.rx * cW, mc.y + m.ry * cH },
+                             shapeCol, 0.f, 0, 2.f);
+            }
+            dl->AddCircleFilled(mc, 8.f, shapeCol);
+            dl->AddCircle(mc, 8.f, IM_COL32(0, 0, 0, 200), 0, 1.5f);
+        }
+
+        ImGui::End();
+
+        // ---- Masks panel ----
+        ImGui::SetNextWindowPos({10, 600}, ImGuiCond_Once);
+        ImGui::SetNextWindowSize({300, 280}, ImGuiCond_Once);
+        ImGui::Begin("Masks");
+
+        if (ImGui::Button("+ Circle") && (int)masks.size() < 8) {
+            Mask m; m.shape = MaskShape::Circle;
+            m.cx = 0.25f + masks.size() * 0.12f;
+            masks.push_back(m);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("+ Rect") && (int)masks.size() < 8) {
+            Mask m; m.shape = MaskShape::Rect;
+            m.cx = 0.25f + masks.size() * 0.12f;
+            masks.push_back(m);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Clear All")) masks.clear();
+        ImGui::SameLine();
+        ImGui::TextDisabled("%zu/8", masks.size());
+        ImGui::TextDisabled("Shift+click in canvas to place");
+
+        ImGui::Separator();
+
+        for (int i = 0; i < (int)masks.size(); i++) {
+            Mask& m = masks[i];
+            ImGui::PushID(i);
+
+            // Header row
+            bool active = (maskDragIdx == i);
+            if (active) ImGui::PushStyleColor(ImGuiCol_Text, {0.4f, 0.85f, 1.f, 1.f});
+            ImGui::Text("%s #%d", (m.shape == MaskShape::Circle) ? "O" : "[ ]", i + 1);
+            if (active) ImGui::PopStyleColor();
+            ImGui::SameLine();
+            if (ImGui::SmallButton("X##del")) {
+                masks.erase(masks.begin() + i);
+                if (maskDragIdx >= i) maskDragIdx = -1;
+                ImGui::PopID(); break;
+            }
+
+            // cx / cy row
+            float hw = (ImGui::GetContentRegionAvail().x - 4.f) / 2.f;
+            ImGui::SetNextItemWidth(hw);
+            ImGui::SliderFloat("cx##m", &m.cx, 0.f, 1.f, "cx %.2f");
+            ImGui::SameLine(0, 4);
+            ImGui::SetNextItemWidth(hw);
+            ImGui::SliderFloat("cy##m", &m.cy, 0.f, 1.f, "cy %.2f");
+
+            // size + feather row
+            if (m.shape == MaskShape::Circle) {
+                ImGui::SetNextItemWidth(hw);
+                ImGui::SliderFloat("r##m", &m.rx, 0.01f, 0.5f, "r %.3f");
+                m.ry = m.rx;
+                ImGui::SameLine(0, 4);
+                ImGui::SetNextItemWidth(hw);
+                ImGui::SliderFloat("f##m", &m.feather, 0.001f, 0.2f, "feather %.3f");
+            } else {
+                ImGui::SetNextItemWidth(hw);
+                ImGui::SliderFloat("rx##m", &m.rx, 0.01f, 0.5f, "width %.3f");
+                ImGui::SameLine(0, 4);
+                ImGui::SetNextItemWidth(hw);
+                ImGui::SliderFloat("ry##m", &m.ry, 0.01f, 0.5f, "height %.3f");
+                ImGui::SetNextItemWidth(hw);
+                ImGui::SliderFloat("f##m", &m.feather, 0.001f, 0.2f, "feather %.3f");
+            }
+
+            ImGui::Spacing();
+            ImGui::PopID();
+        }
+        if (masks.empty())
+            ImGui::TextDisabled("No masks — full output visible");
 
         ImGui::End();
 
@@ -557,9 +752,14 @@ int main() {
         ps.meshRows     = mesh->rows;
         ps.meshCols     = mesh->cols;
         ps.meshPts      = mesh->pts;
+        ps.colorAdj     = colorAdj;
+        ps.blend        = blend;
+        ps.masks        = masks;
         ps.monitor      = selectedMonitor;
+#ifdef HAVE_NDI
         ps.activeSource = (active == ActiveSrc::NDI) ? 1 : 0;
         ps.ndiSource    = ndiConnected;
+#endif
 
         namespace fs = std::filesystem;
         fs::path p = fs::path(getenv("HOME")) / ".local/share/angry-mapper/autosave.angrymap";

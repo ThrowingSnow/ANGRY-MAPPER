@@ -2,13 +2,16 @@
 #include <GL/glew.h>
 #include <vector>
 #include "WarpSurface.h"  // WarpPt, ColorAdj
+#include "Mask.h"
 
 // NxM grid warp. pts is a flat (rows+1)*(cols+1)*2 array of [0,1] screen-space positions.
 class MeshWarp {
 public:
     int      rows = 4, cols = 4;
     std::vector<float> pts;  // row-major, 2 floats per point
-    ColorAdj adj;
+    ColorAdj          adj;
+    EdgeBlend         blend;
+    std::vector<Mask> masks;
 
     MeshWarp() { reset(); }
     ~MeshWarp();

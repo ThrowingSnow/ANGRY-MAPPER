@@ -1,5 +1,6 @@
 #pragma once
 #include "WarpSurface.h"
+#include "Mask.h"
 #include <array>
 #include <string>
 #include <vector>
@@ -10,7 +11,9 @@ struct ProjectState {
     int  meshRows     = 4;
     int  meshCols     = 4;
     std::vector<float> meshPts;  // flat (meshRows+1)*(meshCols+1)*2
-    ColorAdj colorAdj;
+    ColorAdj          colorAdj;
+    EdgeBlend         blend;
+    std::vector<Mask> masks;
     int  monitor      = 1;
     int  activeSource = 0;   // 0 = PipeWire/Syphon, 1 = NDI
     std::string ndiSource;

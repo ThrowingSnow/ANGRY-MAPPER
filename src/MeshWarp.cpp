@@ -51,7 +51,12 @@ void MeshWarp::initGL() {
 layout(location=0) in vec2 aPos;
 layout(location=1) in vec2 aUV;
 out vec2 vUV;
-void main() { gl_Position = vec4(aPos, 0.0, 1.0); vUV = aUV; }
+out vec2 vScreen;
+void main() {
+    gl_Position = vec4(aPos, 0.0, 1.0);
+    vUV    = aUV;
+    vScreen = aPos * 0.5 + 0.5;
+}
 )";
     const char* fs = R"(
 #version 330 core
@@ -59,7 +64,14 @@ uniform sampler2D uTex;
 uniform float     uBrightness;
 uniform float     uContrast;
 uniform float     uGamma;
+uniform float     uBlendL, uBlendR, uBlendT, uBlendB;
+#define MAX_MASKS 8
+uniform int   uMaskCount;
+uniform int   uMaskIsCircle[MAX_MASKS];
+uniform vec4  uMaskGeom[MAX_MASKS];
+uniform float uMaskFeather[MAX_MASKS];
 in  vec2 vUV;
+in  vec2 vScreen;
 out vec4 fragColor;
 void main() {
     vec4 s = texture(uTex, vUV);
@@ -67,6 +79,33 @@ void main() {
     c += uBrightness;
     c  = (c - 0.5) * uContrast + 0.5;
     c  = pow(max(c, vec3(0.0)), vec3(1.0 / uGamma));
+    // vUV.y is 1 at top (r=0) and 0 at bottom (r=rows), so T/B are swapped vs. WarpSurface
+    float bx = smoothstep(0.0, max(uBlendL, 0.001), vUV.x)
+             * smoothstep(0.0, max(uBlendR, 0.001), 1.0 - vUV.x);
+    float by = smoothstep(0.0, max(uBlendT, 0.001), 1.0 - vUV.y)
+             * smoothstep(0.0, max(uBlendB, 0.001), vUV.y);
+    c *= bx * by;
+    if (uMaskCount > 0) {
+        float acc = 0.0;
+        for (int i = 0; i < MAX_MASKS; i++) {
+            if (i >= uMaskCount) break;
+            vec2  ctr = uMaskGeom[i].xy;
+            float f   = max(uMaskFeather[i], 0.001);
+            float mi;
+            if (uMaskIsCircle[i] != 0) {
+                float r    = uMaskGeom[i].z;
+                float dist = length(vScreen - ctr);
+                mi = 1.0 - smoothstep(r - f, r, dist);
+            } else {
+                float rx = uMaskGeom[i].z, ry = uMaskGeom[i].w;
+                vec2  d  = abs(vScreen - ctr) - vec2(rx, ry);
+                float dist = length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);
+                mi = 1.0 - smoothstep(-f, 0.0, dist);
+            }
+            acc = max(acc, mi);
+        }
+        c *= acc;
+    }
     fragColor = vec4(clamp(c, 0.0, 1.0), s.a);
 }
 )";
@@ -137,6 +176,30 @@ void MeshWarp::render(GLuint texture, int vpX, int vpY, int vpW, int vpH) {
     glUniform1f(glGetUniformLocation(m_shader, "uBrightness"), adj.brightness);
     glUniform1f(glGetUniformLocation(m_shader, "uContrast"),   adj.contrast);
     glUniform1f(glGetUniformLocation(m_shader, "uGamma"),      adj.gamma);
+    glUniform1f(glGetUniformLocation(m_shader, "uBlendL"),     blend.left);
+    glUniform1f(glGetUniformLocation(m_shader, "uBlendR"),     blend.right);
+    glUniform1f(glGetUniformLocation(m_shader, "uBlendT"),     blend.top);
+    glUniform1f(glGetUniformLocation(m_shader, "uBlendB"),     blend.bottom);
+
+    int mc = std::min((int)masks.size(), 8);
+    glUniform1i(glGetUniformLocation(m_shader, "uMaskCount"), mc);
+    if (mc > 0) {
+        int   types[8] = {};
+        float geom[32] = {};
+        float feat[8]  = {};
+        for (int i = 0; i < mc; i++) {
+            types[i]    = (masks[i].shape == MaskShape::Circle) ? 1 : 0;
+            geom[i*4+0] = masks[i].cx;
+            geom[i*4+1] = masks[i].cy;
+            geom[i*4+2] = masks[i].rx;
+            geom[i*4+3] = masks[i].ry;
+            feat[i]     = masks[i].feather;
+        }
+        glUniform1iv(glGetUniformLocation(m_shader, "uMaskIsCircle"), 8, types);
+        glUniform4fv(glGetUniformLocation(m_shader, "uMaskGeom"),     8, geom);
+        glUniform1fv(glGetUniformLocation(m_shader, "uMaskFeather"),  8, feat);
+    }
+
     glBindVertexArray(m_vao);
     glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
     glBufferData(GL_ARRAY_BUFFER,

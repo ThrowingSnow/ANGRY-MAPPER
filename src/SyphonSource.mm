@@ -7,7 +7,7 @@
 // ---- PIMPL ----
 struct SyphonSource::Impl {
     // Syphon objects (nil-safe thanks to ARC)
-    SyphonOpenGLClient* __strong client   = nil;
+    SyphonClient* __strong client   = nil;
 
     // GL resources for RECT→2D blit (allocated on first RECTANGLE frame)
     GLuint texID    = 0;
@@ -98,7 +98,7 @@ bool SyphonSource::connect(const std::string& serverName) {
         return false;
     }
 
-    m_impl->client = [[SyphonOpenGLClient alloc]
+    m_impl->client = [[SyphonClient alloc]
                          initWithServerDescription:targetDesc
                                            context:cglCtx
                                            options:nil
@@ -124,24 +124,16 @@ void SyphonSource::update() {
     }
 
     @autoreleasepool {
-        SyphonOpenGLImage* frame = [m_impl->client newFrameImage];
+        SyphonImage* frame = [m_impl->client newFrameImage];
         if (!frame) return;
 
-        NSSize sz   = frame.textureSize;
-        GLuint src  = (GLuint)frame.textureName;
-        GLenum tgt  = (GLenum)frame.textureTarget;
-        int    w    = (int)sz.width;
-        int    h    = (int)sz.height;
+        NSSize sz  = frame.textureSize;
+        GLuint src = (GLuint)frame.textureName;
+        int    w   = (int)sz.width;
+        int    h   = (int)sz.height;
 
-        if (tgt == GL_TEXTURE_2D) {
-            // Zero-copy path: use Syphon's texture directly
-            m_impl->texID = src;
-            m_impl->w = w;
-            m_impl->h = h;
-        } else {
-            // GL_TEXTURE_RECTANGLE → blit into internal GL_TEXTURE_2D
-            m_impl->blitRectTo2D(src, w, h);
-        }
+        // SDK 5: always GL_TEXTURE_RECTANGLE — blit into internal GL_TEXTURE_2D
+        m_impl->blitRectTo2D(src, w, h);
     }
 }
 

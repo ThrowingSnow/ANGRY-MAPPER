@@ -9,8 +9,8 @@ Input: KodeLife (Syphon on macOS, NDI on Linux) → Warp → Projector/Display o
 - [x] CMake setup (GLFW + OpenGL + Dear ImGui via FetchContent)
 - [x] Main window with OpenGL context
 - [x] Basic ImGui overlay
-- [ ] Multi-display enumeration (list connected displays)
-- [ ] Fullscreen output on selected display
+- [x] Multi-display enumeration (list connected displays)
+- [x] Fullscreen output on selected display (borderless window positioned at monitor origin)
 
 ## Phase 2 — Texture Input
 - [x] Abstract `TextureSource` interface
@@ -23,11 +23,11 @@ Input: KodeLife (Syphon on macOS, NDI on Linux) → Warp → Projector/Display o
   - [x] XDG ScreenCast portal via libportal (KDE picker dialog)
   - [x] PipeWire stream → GL texture
   - [x] Live preview confirmed working with KodeLife
-- [ ] **Syphon Source** (macOS — future)
-  - [ ] Obj-C++ bridge (.mm file)
-  - [ ] List available Syphon servers
-  - [ ] Zero-copy IOSurface → GL texture
-- [ ] CMake platform switch (`if(APPLE)` → Syphon, else → PipeWire)
+- [x] **Syphon Source** (macOS)
+  - [x] Obj-C++ bridge (.mm file)
+  - [x] List available Syphon servers
+  - [x] GL_TEXTURE_RECTANGLE → GL_TEXTURE_2D blit (SDK 5 always RECT)
+- [x] CMake platform switch (`if(APPLE)` → Syphon, else → PipeWire)
 
 ## Phase 3 — Quad Warp Engine
 - [x] Full-screen quad renderer (input texture → output)
@@ -36,12 +36,12 @@ Input: KodeLife (Syphon on macOS, NDI on Linux) → Warp → Projector/Display o
 - [x] Visual overlay: control point handles + quad outline
 - [x] Dual-window output (control window + borderless projector window)
 - [x] Monitor selection (any connected display)
-- [ ] Toggle overlay on/off (hide for clean output)
+- [x] Toggle overlay on/off (H key + checkbox in UI)
 
 ## Phase 4 — Mesh Warp (optional, after Phase 3)
-- [ ] NxM grid of control points
-- [ ] Bilinear / bicubic interpolation between points
-- [ ] Grid resolution configurable (e.g. 4x4 up to 16x16)
+- [x] NxM grid of control points
+- [x] Bilinear interpolation per triangle (linear mesh tessellation)
+- [x] Grid resolution configurable (2–16 rows/cols via sliders)
 
 ## Phase 5 — Multi-Surface / Multi-Output
 - [ ] Multiple warp surfaces per session
@@ -50,14 +50,14 @@ Input: KodeLife (Syphon on macOS, NDI on Linux) → Warp → Projector/Display o
 
 ## Phase 6 — Presets & Save/Load
 - [x] JSON serialization of warp points + source config (nlohmann/json)
-- [x] Save / Load project file (.angrymap) with native KDE file dialog (nfd)
-- [ ] Auto-save on exit
+- [x] Save / Load project file (.angrymap) with native file dialog (nfd)
+- [x] Auto-save on exit (~/.local/share/angry-mapper/autosave.angrymap)
 
 ## Phase 7 — Polish
-- [ ] Keyboard shortcuts (reset warp, toggle overlay, fullscreen)
-- [ ] GLSL blend/mask shader per surface (edge blending)
-- [ ] Brightness / contrast / gamma per surface
-- [ ] Performance: target 60fps at 1080p+
+- [x] Keyboard shortcuts: H = toggle overlay, R = reset warp/mesh, F = fullscreen output
+- [x] GLSL edge blend shader per surface (L/R/T/B softness, smoothstep, saved in project)
+- [x] Brightness / contrast / gamma per surface (ColorAdj sliders)
+- [x] FPS counter display in Sources panel
 
 ---
 
@@ -77,4 +77,4 @@ Input: KodeLife (Syphon on macOS, NDI on Linux) → Warp → Projector/Display o
 
 ## Current Status
 
-**→ Phase 3 done. Next: Phase 6 (Save/Load) or Phase 7 (Polish)**
+**→ Phases 1–4 + 6 + 7 complete. Only remaining: Phase 5 (Multi-Surface / Multi-Output).**

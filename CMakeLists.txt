@@ -54,15 +54,22 @@ find_package(OpenGL REQUIRED)
 find_package(GLEW   REQUIRED)
 find_package(glfw3 3.3 REQUIRED)
 
-# NDI SDK — cross-platform (Linux + macOS + Windows)
-find_library(NDI_LIB ndi REQUIRED)
-find_path(NDI_INCLUDE_DIR Processing.NDI.Lib.h REQUIRED)
+# NDI SDK — optional cross-platform (Linux + macOS + Windows)
+find_library(NDI_LIB ndi)
+find_path(NDI_INCLUDE_DIR Processing.NDI.Lib.h)
+if(NDI_LIB AND NDI_INCLUDE_DIR)
+    message(STATUS "NDI SDK found: ${NDI_LIB}")
+    set(HAVE_NDI ON)
+else()
+    message(STATUS "NDI SDK not found — NDI capture disabled")
+    set(HAVE_NDI OFF)
+endif()
 
 # Platform-specific capture source
 if(APPLE)
     # Syphon framework (install from https://github.com/Syphon/Syphon-Framework)
     find_library(SYPHON_FRAMEWORK Syphon
-        PATHS /Library/Frameworks ~/Library/Frameworks
+        PATHS /Library/Frameworks "$ENV{HOME}/Library/Frameworks"
     )
     if(SYPHON_FRAMEWORK)
         message(STATUS "Syphon found: ${SYPHON_FRAMEWORK}")
@@ -97,7 +104,6 @@ target_link_libraries(imgui_lib PUBLIC glfw OpenGL::GL)
 add_executable(angry-mapper
     src/main.cpp
     src/stb_impl.cpp
-    src/NDISource.cpp
     src/WarpSurface.cpp
     src/MeshWarp.cpp
     src/Project.cpp
@@ -105,7 +111,6 @@ add_executable(angry-mapper
 
 target_include_directories(angry-mapper PRIVATE
     src/
-    ${NDI_INCLUDE_DIR}
     ${stb_SOURCE_DIR}
 )
 
@@ -119,10 +124,16 @@ target_link_libraries(angry-mapper PRIVATE
     glfw
     OpenGL::GL
     GLEW::GLEW
-    ${NDI_LIB}
     nlohmann_json::nlohmann_json
     nfd
 )
+
+if(HAVE_NDI)
+    target_sources(angry-mapper PRIVATE src/NDISource.cpp)
+    target_include_directories(angry-mapper PRIVATE ${NDI_INCLUDE_DIR})
+    target_compile_definitions(angry-mapper PRIVATE HAVE_NDI=1)
+    target_link_libraries(angry-mapper PRIVATE ${NDI_LIB})
+endif()
 
 # Platform-specific sources and link libs
 if(APPLE)
@@ -132,6 +143,12 @@ if(APPLE)
         target_link_libraries(angry-mapper PRIVATE ${SYPHON_FRAMEWORK})
         set_source_files_properties(src/SyphonSource.mm PROPERTIES
             COMPILE_FLAGS "-fobjc-arc"
+        )
+        # Syphon uses @loader_path/../Frameworks — symlink it next to the binary
+        add_custom_command(TARGET angry-mapper POST_BUILD
+            COMMAND bash -c "mkdir -p ${CMAKE_SOURCE_DIR}/Frameworks && \
+                ln -sf ${SYPHON_FRAMEWORK} ${CMAKE_SOURCE_DIR}/Frameworks/Syphon.framework"
+            COMMENT "Symlinking Syphon.framework for dyld"
         )
     endif()
     # macOS system frameworks
