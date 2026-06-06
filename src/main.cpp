@@ -8,6 +8,7 @@
 #include <cmath>
 #include <algorithm>
 #include <memory>
+#include <filesystem>
 #include "NDISource.h"
 #include "WarpSurface.h"
 #include "MeshWarp.h"
@@ -118,9 +119,10 @@ int main() {
     auto mesh    = std::make_unique<MeshWarp>();
     auto meshOut = std::make_unique<MeshWarp>();
 
-    int warpMode    = 0;   // 0 = Quad, 1 = Mesh
-    int dragIdx     = -1;
-    int meshDragIdx = -1;
+    int  warpMode    = 0;   // 0 = Quad, 1 = Mesh
+    int  dragIdx     = -1;
+    int  meshDragIdx = -1;
+    bool showOverlay = true;
 
     static char saveMsg[64] = {};
 
@@ -129,6 +131,16 @@ int main() {
 
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
+
+        // ---- Keyboard shortcuts ----
+        if (!ImGui::GetIO().WantCaptureKeyboard) {
+            if (ImGui::IsKeyPressed(ImGuiKey_H))
+                showOverlay = !showOverlay;
+            if (ImGui::IsKeyPressed(ImGuiKey_R)) {
+                if (warpMode == 0) warp->reset(0.f);
+                else { mesh->reset(); meshDragIdx = -1; }
+            }
+        }
 
         if (outputWin && glfwWindowShouldClose(outputWin)) {
             glfwDestroyWindow(outputWin);
@@ -297,6 +309,28 @@ int main() {
             return ps;
         };
 
+        // "Load Last" — restores the auto-save from previous session
+        {
+            namespace fs = std::filesystem;
+            fs::path autosave = fs::path(getenv("HOME")) / ".local/share/angry-mapper/autosave.angrymap";
+            if (fs::exists(autosave)) {
+                if (ImGui::Button("Load Last")) {
+                    ProjectState ps;
+                    if (loadProject(autosave.string(), ps)) {
+                        warp->pts       = ps.warpPts;
+                        warpMode        = ps.warpMode;
+                        mesh->setGrid(ps.meshRows, ps.meshCols);
+                        if (!ps.meshPts.empty()) mesh->pts = ps.meshPts;
+                        selectedMonitor = ps.monitor;
+                        active = (ps.activeSource == 1) ? ActiveSrc::NDI : active;
+                        ndiConnected    = ps.ndiSource;
+                        snprintf(saveMsg, sizeof(saveMsg), "Restored.");
+                    }
+                }
+                ImGui::SameLine();
+            }
+        }
+
         if (ImGui::Button("Save...")) {
             nfdchar_t* outPath = nullptr;
             nfdfilteritem_t filters[] = {{"ANGRY-MAPPER project", "angrymap"}};
@@ -364,6 +398,8 @@ int main() {
             ImGui::SameLine(); ImGui::TextDisabled("cols");
         }
         ImGui::SameLine(0, 20);
+        ImGui::Checkbox(showOverlay ? "Overlay [on]" : "Overlay [off]", &showOverlay);
+        ImGui::SameLine(0, 12);
         ImGui::Checkbox(previewLocked ? "Lock [on]" : "Lock [off]", &previewLocked);
 
         ImVec2 canvasPos = ImGui::GetCursorScreenPos();
@@ -393,10 +429,12 @@ int main() {
 
         if (warpMode == 0) {
             // ---- Quad mode ----
-            for (int i = 0; i < 4; i++)
-                dl->AddLine(toScreen(warp->pts[i]),
-                            toScreen(warp->pts[(i+1)%4]),
-                            IM_COL32(255,200,0,180), 1.5f);
+            if (showOverlay) {
+                for (int i = 0; i < 4; i++)
+                    dl->AddLine(toScreen(warp->pts[i]),
+                                toScreen(warp->pts[(i+1)%4]),
+                                IM_COL32(255,200,0,180), 1.5f);
+            }
 
             if (!ImGui::GetIO().MouseDown[0]) dragIdx = -1;
             for (int i = 0; i < 4; i++) {
@@ -409,29 +447,33 @@ int main() {
                     warp->pts[i].x = std::clamp((mp.x-canvasPos.x)/cW, 0.f, 1.f);
                     warp->pts[i].y = std::clamp((mp.y-canvasPos.y)/cH, 0.f, 1.f);
                 }
-                ImU32 col = dragIdx==i ? IM_COL32(255,100,0,255)
-                          : hov        ? IM_COL32(255,255,0,255)
-                                       : IM_COL32(255,200,0,210);
-                dl->AddCircleFilled(sp, 9.f, col);
-                dl->AddCircle(sp, 9.f, IM_COL32(0,0,0,220), 0, 2.f);
+                if (showOverlay) {
+                    ImU32 col = dragIdx==i ? IM_COL32(255,100,0,255)
+                              : hov        ? IM_COL32(255,255,0,255)
+                                           : IM_COL32(255,200,0,210);
+                    dl->AddCircleFilled(sp, 9.f, col);
+                    dl->AddCircle(sp, 9.f, IM_COL32(0,0,0,220), 0, 2.f);
+                }
             }
 
             if (ImGui::Button("Reset Warp")) warp->reset(0.f);
             ImGui::SameLine();
-            ImGui::TextDisabled("Drag corners to warp | Output on selected monitor");
+            ImGui::TextDisabled("H = overlay  R = reset  | Output on selected monitor");
 
         } else {
             // ---- Mesh mode ----
             int R = mesh->rows, C = mesh->cols;
 
-            for (int r = 0; r <= R; r++)
-                for (int c = 0; c < C; c++)
-                    dl->AddLine(toScreen(mesh->getPt(r,c)), toScreen(mesh->getPt(r,c+1)),
-                                IM_COL32(255,200,0,160), 1.f);
-            for (int c = 0; c <= C; c++)
-                for (int r = 0; r < R; r++)
-                    dl->AddLine(toScreen(mesh->getPt(r,c)), toScreen(mesh->getPt(r+1,c)),
-                                IM_COL32(255,200,0,160), 1.f);
+            if (showOverlay) {
+                for (int r = 0; r <= R; r++)
+                    for (int c = 0; c < C; c++)
+                        dl->AddLine(toScreen(mesh->getPt(r,c)), toScreen(mesh->getPt(r,c+1)),
+                                    IM_COL32(255,200,0,160), 1.f);
+                for (int c = 0; c <= C; c++)
+                    for (int r = 0; r < R; r++)
+                        dl->AddLine(toScreen(mesh->getPt(r,c)), toScreen(mesh->getPt(r+1,c)),
+                                    IM_COL32(255,200,0,160), 1.f);
+            }
 
             if (!ImGui::GetIO().MouseDown[0]) meshDragIdx = -1;
             for (int r = 0; r <= R; r++) {
@@ -448,17 +490,19 @@ int main() {
                             std::clamp((mp.x-canvasPos.x)/cW, 0.f, 1.f),
                             std::clamp((mp.y-canvasPos.y)/cH, 0.f, 1.f)
                         });
-                    ImU32 col = meshDragIdx==idx ? IM_COL32(255,100,0,255)
-                              : hov              ? IM_COL32(255,255,0,255)
-                                                 : IM_COL32(255,200,0,200);
-                    dl->AddCircleFilled(sp, 6.f, col);
-                    dl->AddCircle(sp, 6.f, IM_COL32(0,0,0,200), 0, 1.5f);
+                    if (showOverlay) {
+                        ImU32 col = meshDragIdx==idx ? IM_COL32(255,100,0,255)
+                                  : hov              ? IM_COL32(255,255,0,255)
+                                                     : IM_COL32(255,200,0,200);
+                        dl->AddCircleFilled(sp, 6.f, col);
+                        dl->AddCircle(sp, 6.f, IM_COL32(0,0,0,200), 0, 1.5f);
+                    }
                 }
             }
 
             if (ImGui::Button("Reset Mesh")) { mesh->reset(); meshDragIdx = -1; }
             ImGui::SameLine();
-            ImGui::TextDisabled("Drag grid points to warp | Output on selected monitor");
+            ImGui::TextDisabled("H = overlay  R = reset  | Output on selected monitor");
         }
 
         ImGui::End();
@@ -472,6 +516,24 @@ int main() {
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         glfwSwapBuffers(window);
+    }
+
+    // ---- Auto-save on exit ----
+    {
+        ProjectState ps;
+        ps.warpPts      = warp->pts;
+        ps.warpMode     = warpMode;
+        ps.meshRows     = mesh->rows;
+        ps.meshCols     = mesh->cols;
+        ps.meshPts      = mesh->pts;
+        ps.monitor      = selectedMonitor;
+        ps.activeSource = (active == ActiveSrc::NDI) ? 1 : 0;
+        ps.ndiSource    = ndiConnected;
+
+        namespace fs = std::filesystem;
+        fs::path p = fs::path(getenv("HOME")) / ".local/share/angry-mapper/autosave.angrymap";
+        fs::create_directories(p.parent_path());
+        saveProject(p.string(), ps);
     }
 
     if (outputWin) glfwDestroyWindow(outputWin);
