@@ -8,10 +8,14 @@ using json = nlohmann::json;
 bool saveProject(const std::string& path, const ProjectState& s) {
     try {
         json j;
-        j["version"] = 1;
+        j["version"]      = 1;
         j["monitor"]      = s.monitor;
         j["activeSource"] = s.activeSource;
         j["ndiSource"]    = s.ndiSource;
+        j["warpMode"]     = s.warpMode;
+        j["meshRows"]     = s.meshRows;
+        j["meshCols"]     = s.meshCols;
+        j["meshPts"]      = s.meshPts;
 
         auto& pts = j["warp"]["pts"];
         for (const auto& p : s.warpPts)
@@ -35,6 +39,11 @@ bool loadProject(const std::string& path, ProjectState& s) {
         s.monitor      = j.value("monitor",      s.monitor);
         s.activeSource = j.value("activeSource", s.activeSource);
         s.ndiSource    = j.value("ndiSource",    std::string{});
+        s.warpMode     = j.value("warpMode",     s.warpMode);
+        s.meshRows     = j.value("meshRows",     s.meshRows);
+        s.meshCols     = j.value("meshCols",     s.meshCols);
+        if (j.contains("meshPts"))
+            s.meshPts = j["meshPts"].get<std::vector<float>>();
 
         const auto& pts = j["warp"]["pts"];
         for (size_t i = 0; i < 4 && i < pts.size(); i++) {

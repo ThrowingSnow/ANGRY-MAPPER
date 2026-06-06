@@ -11,6 +11,7 @@
 #include "NDISource.h"
 #include "PipeWireSource.h"
 #include "WarpSurface.h"
+#include "MeshWarp.h"
 #include "Project.h"
 
 // ----------------------------------------------------------------
@@ -29,7 +30,6 @@ static GLFWwindow* openOutputWindow(int monitorIdx, GLFWwindow* sharedCtx) {
     GLFWwindow* win = nullptr;
 
     if (monitorIdx >= 0 && monitorIdx < count) {
-        // Fullscreen-style: borderless window covering the monitor
         GLFWmonitor* mon = mons[monitorIdx];
         const GLFWvidmode* mode = glfwGetVideoMode(mon);
         win = glfwCreateWindow(mode->width, mode->height,
@@ -40,12 +40,10 @@ static GLFWwindow* openOutputWindow(int monitorIdx, GLFWwindow* sharedCtx) {
             glfwSetWindowPos(win, mx, my);
         }
     } else {
-        // Windowed fallback (single-monitor testing)
         win = glfwCreateWindow(1280, 720,
                                "ANGRY-MAPPER output", nullptr, sharedCtx);
     }
 
-    // Restore hints for any subsequent windows
     glfwWindowHint(GLFW_DECORATED, GLFW_TRUE);
     return win;
 }
@@ -82,22 +80,25 @@ int main() {
     enum class ActiveSrc { None, NDI, PipeWire };
     ActiveSrc active = ActiveSrc::PipeWire;
 
-    // Warp — one for preview (main ctx), one for output (output ctx, own VAO)
+    // Warp surfaces — one per context (VAOs are not shared)
     auto warp    = std::make_unique<WarpSurface>();
     auto warpOut = std::make_unique<WarpSurface>();
+    auto mesh    = std::make_unique<MeshWarp>();
+    auto meshOut = std::make_unique<MeshWarp>();
 
-    int dragIdx = -1;
+    int warpMode  = 0;   // 0 = Quad, 1 = Mesh
+    int dragIdx   = -1;  // quad corner drag
+    int meshDragIdx = -1;
 
     static char saveMsg[64] = {};
 
     // Output window state
     GLFWwindow* outputWin       = nullptr;
-    int         selectedMonitor = 1;  // default: second monitor
+    int         selectedMonitor = 1;
 
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
 
-        // Close output window if its X was hit
         if (outputWin && glfwWindowShouldClose(outputWin)) {
             glfwDestroyWindow(outputWin);
             outputWin = nullptr;
@@ -115,16 +116,23 @@ int main() {
             activeTex = ndi->texture(); activeW = ndi->width(); activeH = ndi->height();
         }
 
-        // ---- Render output window (before ImGui frame) ----
+        // ---- Render output window ----
         if (outputWin) {
-            warpOut->pts = warp->pts;
             glfwMakeContextCurrent(outputWin);
             int ow, oh;
             glfwGetFramebufferSize(outputWin, &ow, &oh);
             glViewport(0, 0, ow, oh);
             glClearColor(0.f, 0.f, 0.f, 1.f);
             glClear(GL_COLOR_BUFFER_BIT);
-            warpOut->render(activeTex, 0, 0, ow, oh);
+            if (warpMode == 0) {
+                warpOut->pts = warp->pts;
+                warpOut->render(activeTex, 0, 0, ow, oh);
+            } else {
+                meshOut->rows = mesh->rows;
+                meshOut->cols = mesh->cols;
+                meshOut->pts  = mesh->pts;
+                meshOut->render(activeTex, 0, 0, ow, oh);
+            }
             glfwSwapBuffers(outputWin);
             glfwMakeContextCurrent(window);
         }
@@ -136,7 +144,7 @@ int main() {
 
         // ---- Sources panel ----
         ImGui::SetNextWindowPos({10, 10}, ImGuiCond_Once);
-        ImGui::SetNextWindowSize({300, 500}, ImGuiCond_Once);
+        ImGui::SetNextWindowSize({300, 560}, ImGuiCond_Once);
         ImGui::Begin("Sources");
 
         ImGui::SeparatorText("PipeWire (Linux)");
@@ -170,18 +178,15 @@ int main() {
         int monCount;
         GLFWmonitor** mons = glfwGetMonitors(&monCount);
 
-        // Build monitor name list
         const char* monNames[16] = {};
         int nMons = std::min(monCount, 16);
         for (int i = 0; i < nMons; i++) monNames[i] = glfwGetMonitorName(mons[i]);
-        // Extra option: windowed (single-monitor test)
         static const char* kWindowed = "Windowed (test)";
         const char* allNames[17];
         for (int i = 0; i < nMons; i++) allNames[i] = monNames[i];
         allNames[nMons] = kWindowed;
         int totalOpts = nMons + 1;
 
-        // Clamp selection
         if (selectedMonitor >= totalOpts) selectedMonitor = 0;
         ImGui::Combo("Monitor", &selectedMonitor, allNames, totalOpts);
 
@@ -207,10 +212,14 @@ int main() {
 
         auto collectState = [&]() {
             ProjectState ps;
-            ps.warpPts     = warp->pts;
-            ps.monitor     = selectedMonitor;
+            ps.warpPts      = warp->pts;
+            ps.warpMode     = warpMode;
+            ps.meshRows     = mesh->rows;
+            ps.meshCols     = mesh->cols;
+            ps.meshPts      = mesh->pts;
+            ps.monitor      = selectedMonitor;
             ps.activeSource = (active == ActiveSrc::NDI) ? 1 : 0;
-            ps.ndiSource   = ndiConnected;
+            ps.ndiSource    = ndiConnected;
             return ps;
         };
 
@@ -231,10 +240,13 @@ int main() {
             if (NFD_OpenDialog(&inPath, filters, 1, nullptr) == NFD_OKAY) {
                 ProjectState ps;
                 if (loadProject(inPath, ps)) {
-                    warp->pts      = ps.warpPts;
+                    warp->pts       = ps.warpPts;
+                    warpMode        = ps.warpMode;
+                    mesh->setGrid(ps.meshRows, ps.meshCols);
+                    if (!ps.meshPts.empty()) mesh->pts = ps.meshPts;
                     selectedMonitor = ps.monitor;
                     active = (ps.activeSource == 1) ? ActiveSrc::NDI : ActiveSrc::PipeWire;
-                    ndiConnected   = ps.ndiSource;
+                    ndiConnected    = ps.ndiSource;
                     snprintf(saveMsg, sizeof(saveMsg), "Loaded.");
                 } else {
                     snprintf(saveMsg, sizeof(saveMsg), "Load failed!");
@@ -246,17 +258,39 @@ int main() {
 
         ImGui::End();
 
-        // ---- Warp preview ----
+        // ---- Warp Preview ----
         ImGui::SetNextWindowPos({320, 10}, ImGuiCond_Once);
         ImGui::SetNextWindowSize({1060, 790}, ImGuiCond_Once);
         ImGui::Begin("Warp Preview", nullptr,
                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
+        // Mode radio + mesh grid controls
+        ImGui::RadioButton("Quad", &warpMode, 0);
+        ImGui::SameLine();
+        ImGui::RadioButton("Mesh", &warpMode, 1);
+        if (warpMode == 1) {
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(90);
+            int newRows = mesh->rows;
+            if (ImGui::SliderInt("##rows", &newRows, 2, 16)) {
+                mesh->setGrid(newRows, mesh->cols);
+                meshDragIdx = -1;
+            }
+            ImGui::SameLine(); ImGui::TextDisabled("rows");
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(90);
+            int newCols = mesh->cols;
+            if (ImGui::SliderInt("##cols", &newCols, 2, 16)) {
+                mesh->setGrid(mesh->rows, newCols);
+                meshDragIdx = -1;
+            }
+            ImGui::SameLine(); ImGui::TextDisabled("cols");
+        }
+
         ImVec2 canvasPos = ImGui::GetCursorScreenPos();
         ImVec2 avail     = ImGui::GetContentRegionAvail();
         float  cW = avail.x, cH = avail.y - 30.f;
 
-        // InvisibleButton owns the mouse in this area (prevents window drag)
         ImGui::InvisibleButton("canvas", {cW, cH}, ImGuiButtonFlags_MouseButtonLeft);
         bool canvasActive  = ImGui::IsItemActive();
         bool canvasHovered = ImGui::IsItemHovered();
@@ -274,45 +308,91 @@ int main() {
                         IM_COL32(100,100,100,255), "No source active");
         }
 
-        // Coordinate helper
+        ImVec2 mp = ImGui::GetIO().MousePos;
+
         auto toScreen = [&](WarpPt p) -> ImVec2 {
             return { canvasPos.x + p.x * cW, canvasPos.y + p.y * cH };
         };
 
-        // Quad outline
-        for (int i = 0; i < 4; i++) {
-            dl->AddLine(toScreen(warp->pts[i]),
-                        toScreen(warp->pts[(i+1)%4]),
-                        IM_COL32(255, 200, 0, 180), 1.5f);
-        }
-
-        // Handles + drag
-        ImVec2 mp = ImGui::GetIO().MousePos;
-        if (!ImGui::GetIO().MouseDown[0]) dragIdx = -1;
-
-        for (int i = 0; i < 4; i++) {
-            ImVec2 sp   = toScreen(warp->pts[i]);
-            float  dist = sqrtf((mp.x-sp.x)*(mp.x-sp.x) + (mp.y-sp.y)*(mp.y-sp.y));
-            bool   hov  = dist < 12.f && canvasHovered;
-
-            if (hov && ImGui::GetIO().MouseDown[0] && dragIdx == -1 && canvasActive)
-                dragIdx = i;
-
-            if (dragIdx == i) {
-                warp->pts[i].x = std::clamp((mp.x - canvasPos.x) / cW, 0.f, 1.f);
-                warp->pts[i].y = std::clamp((mp.y - canvasPos.y) / cH, 0.f, 1.f);
+        if (warpMode == 0) {
+            // ---- Quad mode ----
+            for (int i = 0; i < 4; i++) {
+                dl->AddLine(toScreen(warp->pts[i]),
+                            toScreen(warp->pts[(i+1)%4]),
+                            IM_COL32(255, 200, 0, 180), 1.5f);
             }
 
-            ImU32 col = dragIdx == i  ? IM_COL32(255,100,  0,255)
-                      : hov           ? IM_COL32(255,255,  0,255)
-                                      : IM_COL32(255,200,  0,210);
-            dl->AddCircleFilled(sp, 9.f, col);
-            dl->AddCircle(sp, 9.f, IM_COL32(0,0,0,220), 0, 2.f);
-        }
+            if (!ImGui::GetIO().MouseDown[0]) dragIdx = -1;
+            for (int i = 0; i < 4; i++) {
+                ImVec2 sp   = toScreen(warp->pts[i]);
+                float  dist = sqrtf((mp.x-sp.x)*(mp.x-sp.x) + (mp.y-sp.y)*(mp.y-sp.y));
+                bool   hov  = dist < 12.f && canvasHovered;
 
-        if (ImGui::Button("Reset Warp")) warp->reset(0.f);
-        ImGui::SameLine();
-        ImGui::TextDisabled("Drag corners to warp | Output appears on selected monitor");
+                if (hov && ImGui::GetIO().MouseDown[0] && dragIdx == -1 && canvasActive)
+                    dragIdx = i;
+                if (dragIdx == i) {
+                    warp->pts[i].x = std::clamp((mp.x - canvasPos.x) / cW, 0.f, 1.f);
+                    warp->pts[i].y = std::clamp((mp.y - canvasPos.y) / cH, 0.f, 1.f);
+                }
+
+                ImU32 col = dragIdx == i  ? IM_COL32(255,100,  0,255)
+                          : hov           ? IM_COL32(255,255,  0,255)
+                                          : IM_COL32(255,200,  0,210);
+                dl->AddCircleFilled(sp, 9.f, col);
+                dl->AddCircle(sp, 9.f, IM_COL32(0,0,0,220), 0, 2.f);
+            }
+
+            if (ImGui::Button("Reset Warp")) warp->reset(0.f);
+            ImGui::SameLine();
+            ImGui::TextDisabled("Drag corners to warp | Output on selected monitor");
+
+        } else {
+            // ---- Mesh mode ----
+            int R = mesh->rows, C = mesh->cols;
+
+            // Grid lines
+            for (int r = 0; r <= R; r++)
+                for (int c = 0; c < C; c++)
+                    dl->AddLine(toScreen(mesh->getPt(r, c)),
+                                toScreen(mesh->getPt(r, c+1)),
+                                IM_COL32(255, 200, 0, 160), 1.f);
+            for (int c = 0; c <= C; c++)
+                for (int r = 0; r < R; r++)
+                    dl->AddLine(toScreen(mesh->getPt(r, c)),
+                                toScreen(mesh->getPt(r+1, c)),
+                                IM_COL32(255, 200, 0, 160), 1.f);
+
+            // Handles + drag
+            if (!ImGui::GetIO().MouseDown[0]) meshDragIdx = -1;
+            for (int r = 0; r <= R; r++) {
+                for (int c = 0; c <= C; c++) {
+                    int    idx = r * (C + 1) + c;
+                    WarpPt pt  = mesh->getPt(r, c);
+                    ImVec2 sp  = toScreen(pt);
+                    float  dist = sqrtf((mp.x-sp.x)*(mp.x-sp.x) + (mp.y-sp.y)*(mp.y-sp.y));
+                    bool   hov  = dist < 9.f && canvasHovered;
+
+                    if (hov && ImGui::GetIO().MouseDown[0] && meshDragIdx == -1 && canvasActive)
+                        meshDragIdx = idx;
+                    if (meshDragIdx == idx) {
+                        mesh->setPt(r, c, {
+                            std::clamp((mp.x - canvasPos.x) / cW, 0.f, 1.f),
+                            std::clamp((mp.y - canvasPos.y) / cH, 0.f, 1.f)
+                        });
+                    }
+
+                    ImU32 col = meshDragIdx == idx ? IM_COL32(255,100,  0,255)
+                              : hov                ? IM_COL32(255,255,  0,255)
+                                                   : IM_COL32(255,200,  0,200);
+                    dl->AddCircleFilled(sp, 6.f, col);
+                    dl->AddCircle(sp, 6.f, IM_COL32(0,0,0,200), 0, 1.5f);
+                }
+            }
+
+            if (ImGui::Button("Reset Mesh")) { mesh->reset(); meshDragIdx = -1; }
+            ImGui::SameLine();
+            ImGui::TextDisabled("Drag grid points to warp | Output on selected monitor");
+        }
 
         ImGui::End();
 

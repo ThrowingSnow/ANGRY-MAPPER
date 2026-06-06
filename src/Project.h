@@ -2,11 +2,16 @@
 #include "WarpSurface.h"
 #include <array>
 #include <string>
+#include <vector>
 
 struct ProjectState {
     std::array<WarpPt, 4> warpPts;
+    int  warpMode     = 0;   // 0 = Quad, 1 = Mesh
+    int  meshRows     = 4;
+    int  meshCols     = 4;
+    std::vector<float> meshPts;  // flat (meshRows+1)*(meshCols+1)*2
     int  monitor      = 1;
-    int  activeSource = 0;  // 0 = PipeWire, 1 = NDI
+    int  activeSource = 0;   // 0 = PipeWire, 1 = NDI
     std::string ndiSource;
 };
 

@@ -71,6 +71,7 @@ add_executable(angry-mapper
     src/NDISource.cpp
     src/PipeWireSource.cpp
     src/WarpSurface.cpp
+    src/MeshWarp.cpp
     src/Project.cpp
 )
 
