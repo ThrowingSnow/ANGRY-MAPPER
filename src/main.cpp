@@ -259,15 +259,21 @@ int main() {
         ImGui::End();
 
         // ---- Warp Preview ----
+        static bool previewLocked = true;
+
         ImGui::SetNextWindowPos({320, 10}, ImGuiCond_Once);
         ImGui::SetNextWindowSize({1060, 790}, ImGuiCond_Once);
-        ImGui::Begin("Warp Preview", nullptr,
-                     ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+        ImGuiWindowFlags previewFlags = ImGuiWindowFlags_NoScrollbar
+                                      | ImGuiWindowFlags_NoScrollWithMouse;
+        if (previewLocked) previewFlags |= ImGuiWindowFlags_NoMove;
+        ImGui::Begin("Warp Preview", nullptr, previewFlags);
 
         // Mode radio + mesh grid controls
         ImGui::RadioButton("Quad", &warpMode, 0);
         ImGui::SameLine();
         ImGui::RadioButton("Mesh", &warpMode, 1);
+        ImGui::SameLine(0, 20);
+        ImGui::Checkbox(previewLocked ? "Lock [on]" : "Lock [off]", &previewLocked);
         if (warpMode == 1) {
             ImGui::SameLine();
             ImGui::SetNextItemWidth(90);
