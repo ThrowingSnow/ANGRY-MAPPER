@@ -1,5 +1,5 @@
 #pragma once
-#include <GL/glew.h>
+#include "GL.h"
 #include <vector>
 #include "WarpSurface.h"  // WarpPt, ColorAdj
 #include "Mask.h"

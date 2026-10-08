@@ -1,4 +1,9 @@
 cmake_minimum_required(VERSION 3.21)
+
+# Oldest macOS the app should run on (must be set before project()).
+# Ignored on other platforms.
+set(CMAKE_OSX_DEPLOYMENT_TARGET "10.13" CACHE STRING "Minimum macOS version")
+
 project(ANGRY-MAPPER VERSION 0.1.0 LANGUAGES CXX)
 
 if(APPLE)
@@ -51,8 +56,25 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(stb)
 
 find_package(OpenGL REQUIRED)
-find_package(GLEW   REQUIRED)
-find_package(glfw3 3.3 REQUIRED)
+if(APPLE)
+    # Build GLFW statically so it honours CMAKE_OSX_DEPLOYMENT_TARGET
+    # (Homebrew's dylib only runs on the macOS it was built for).
+    # No GLEW on macOS: the system GL framework exports all core functions.
+    FetchContent_Declare(
+        glfw
+        GIT_REPOSITORY https://github.com/glfw/glfw.git
+        GIT_TAG        3.4
+        GIT_SHALLOW    TRUE
+    )
+    set(GLFW_BUILD_DOCS     OFF CACHE INTERNAL "")
+    set(GLFW_BUILD_TESTS    OFF CACHE INTERNAL "")
+    set(GLFW_BUILD_EXAMPLES OFF CACHE INTERNAL "")
+    set(GLFW_INSTALL        OFF CACHE INTERNAL "")
+    FetchContent_MakeAvailable(glfw)
+else()
+    find_package(GLEW   REQUIRED)
+    find_package(glfw3 3.3 REQUIRED)
+endif()
 
 # NDI SDK — optional cross-platform (Linux + macOS + Windows)
 find_library(NDI_LIB ndi)
@@ -123,10 +145,13 @@ target_link_libraries(angry-mapper PRIVATE
     imgui_lib
     glfw
     OpenGL::GL
-    GLEW::GLEW
     nlohmann_json::nlohmann_json
     nfd
 )
+
+if(NOT APPLE)
+    target_link_libraries(angry-mapper PRIVATE GLEW::GLEW)
+endif()
 
 if(HAVE_NDI)
     target_sources(angry-mapper PRIVATE src/NDISource.cpp)

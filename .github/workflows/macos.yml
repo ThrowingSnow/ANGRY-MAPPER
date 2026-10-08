@@ -29,6 +29,16 @@ jobs:
           ! otool -L dist/ANGRY-MAPPER.app/Contents/MacOS/angry-mapper | grep -E '/(opt/homebrew|usr/local)/'
           codesign --verify --deep --strict dist/ANGRY-MAPPER.app
 
+      - name: Check minimum macOS version (Intel → 10.13)
+        if: runner.arch == 'X64'
+        run: |
+          for bin in dist/ANGRY-MAPPER.app/Contents/MacOS/angry-mapper \
+                     dist/ANGRY-MAPPER.app/Contents/Frameworks/Syphon.framework/Syphon; do
+            min=$(otool -l "$bin" | awk '/LC_VERSION_MIN_MACOSX/{f=1} f&&/version/{print $2; exit} /LC_BUILD_VERSION/{g=1} g&&/minos/{print $2; exit}')
+            echo "$bin → macOS $min"
+            [ "$min" = "10.13" ] || { echo "::error::$bin needs macOS $min, expected 10.13"; exit 1; }
+          done
+
       - uses: actions/upload-artifact@v4
         with:
           name: ANGRY-MAPPER-macos-${{ runner.arch }}

@@ -3,9 +3,10 @@
 #
 #   ./scripts/build-macos.sh
 #
-# Needs Xcode command line tools + Homebrew. Installs glfw/glew/dylibbundler via brew,
-# builds Syphon.framework from source if it isn't in ~/Library/Frameworks yet,
-# then produces dist/ANGRY-MAPPER.app (self-contained, ad-hoc signed) and a zip of it.
+# Needs Xcode command line tools + Homebrew (for cmake/ninja). GLFW is built from source
+# by CMake, Syphon.framework is built from source if it isn't in ~/Library/Frameworks yet.
+# Produces dist/ANGRY-MAPPER.app (self-contained, ad-hoc signed) and a zip of it.
+# The result runs on macOS 10.13+ (MACOS_MIN to override).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -14,11 +15,13 @@ DIST="$ROOT/dist"
 APP="$DIST/ANGRY-MAPPER.app"
 ARCH="$(uname -m)"
 SYPHON_DIR="$HOME/Library/Frameworks/Syphon.framework"
+MACOS_MIN="${MACOS_MIN:-10.13}"
+export MACOSX_DEPLOYMENT_TARGET="$MACOS_MIN"
 
 xcode-select -p >/dev/null 2>&1 || { echo "→ Installing Xcode Command Line Tools, re-run afterwards"; xcode-select --install; exit 1; }
 command -v brew >/dev/null || { echo "Homebrew missing: https://brew.sh"; exit 1; }
 
-brew install cmake ninja glfw glew dylibbundler
+brew install cmake ninja
 
 # --- Syphon.framework ---
 if [[ ! -d "$SYPHON_DIR" ]]; then
@@ -27,6 +30,7 @@ if [[ ! -d "$SYPHON_DIR" ]]; then
     xcodebuild -project "$TMP/Syphon-Framework/Syphon.xcodeproj" \
         -target Syphon -configuration Release \
         ARCHS="$ARCH" ONLY_ACTIVE_ARCH=NO \
+        MACOSX_DEPLOYMENT_TARGET="$MACOS_MIN" \
         CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="" \
         SYMROOT="$TMP/build"
     mkdir -p "$HOME/Library/Frameworks"
@@ -35,7 +39,8 @@ if [[ ! -d "$SYPHON_DIR" ]]; then
 fi
 
 # --- Compile ---
-cmake -S "$ROOT" -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake -S "$ROOT" -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_OSX_DEPLOYMENT_TARGET="$MACOS_MIN"
 cmake --build "$BUILD"
 
 # --- Bundle ---
@@ -59,19 +64,13 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundlePackageType</key>        <string>APPL</string>
     <key>CFBundleVersion</key>            <string>${VERSION}</string>
     <key>CFBundleShortVersionString</key> <string>${VERSION}</string>
-    <key>LSMinimumSystemVersion</key>     <string>$(sw_vers -productVersion | cut -d. -f1).0</string>
+    <key>LSMinimumSystemVersion</key>     <string>${MACOS_MIN}</string>
     <key>NSHighResolutionCapable</key>    <true/>
 </dict>
 </plist>
 PLIST
 
-# Copy Homebrew dylibs (glfw, glew) into the bundle and rewrite load paths
-dylibbundler -of -b -cd \
-    -x "$APP/Contents/MacOS/angry-mapper" \
-    -d "$APP/Contents/Frameworks/" \
-    -p @executable_path/../Frameworks/
-
-# Ad-hoc sign (required on Apple Silicon after install_name edits)
+# Ad-hoc sign (required on Apple Silicon)
 codesign --force --deep --sign - "$APP"
 
 # --- Zip ---

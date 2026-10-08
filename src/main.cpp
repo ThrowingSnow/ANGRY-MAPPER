@@ -1,4 +1,4 @@
-#include <GL/glew.h>
+#include "GL.h"
 #include <GLFW/glfw3.h>
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
@@ -8,7 +8,8 @@
 #include <cmath>
 #include <algorithm>
 #include <memory>
-#include <filesystem>
+#include <string>
+#include <sys/stat.h>
 #include <stb_image.h>
 #ifdef HAVE_NDI
 #include "NDISource.h"
@@ -64,6 +65,30 @@ static GLFWwindow* openOutputWindow(int monitorIdx, GLFWwindow* sharedCtx) {
 }
 
 // ----------------------------------------------------------------
+// Auto-save location (POSIX calls instead of std::filesystem, which
+// needs macOS 10.15+ and would rule out older Macs)
+// ----------------------------------------------------------------
+static std::string autosaveDir() {
+    const char* home = getenv("HOME");
+    return std::string(home ? home : ".") + "/.local/share/angry-mapper";
+}
+
+static std::string autosavePath() {
+    return autosaveDir() + "/autosave.angrymap";
+}
+
+static bool fileExists(const std::string& path) {
+    struct stat st;
+    return stat(path.c_str(), &st) == 0;
+}
+
+static void makeDirs(const std::string& path) {
+    for (size_t i = 1; i <= path.size(); ++i)
+        if (i == path.size() || path[i] == '/')
+            mkdir(path.substr(0, i).c_str(), 0755);
+}
+
+// ----------------------------------------------------------------
 int main() {
     if (!glfwInit()) return -1;
 
@@ -80,8 +105,10 @@ int main() {
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1);
 
+#ifndef __APPLE__
     glewExperimental = GL_TRUE;
     glewInit();
+#endif
 
     // Window icon — load assets/icon.png if present
     {
@@ -417,12 +444,11 @@ int main() {
 
         // "Load Last" — restores the auto-save from previous session
         {
-            namespace fs = std::filesystem;
-            fs::path autosave = fs::path(getenv("HOME")) / ".local/share/angry-mapper/autosave.angrymap";
-            if (fs::exists(autosave)) {
+            std::string autosave = autosavePath();
+            if (fileExists(autosave)) {
                 if (ImGui::Button("Load Last")) {
                     ProjectState ps;
-                    if (loadProject(autosave.string(), ps)) {
+                    if (loadProject(autosave, ps)) {
                         warp->pts       = ps.warpPts;
                         warpMode        = ps.warpMode;
                         mesh->setGrid(ps.meshRows, ps.meshCols);
@@ -769,10 +795,8 @@ int main() {
         ps.ndiSource    = ndiConnected;
 #endif
 
-        namespace fs = std::filesystem;
-        fs::path p = fs::path(getenv("HOME")) / ".local/share/angry-mapper/autosave.angrymap";
-        fs::create_directories(p.parent_path());
-        saveProject(p.string(), ps);
+        makeDirs(autosaveDir());
+        saveProject(autosavePath(), ps);
     }
 
     if (outputWin) glfwDestroyWindow(outputWin);
