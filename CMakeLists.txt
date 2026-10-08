@@ -146,8 +146,9 @@ if(APPLE)
         )
         # Syphon uses @loader_path/../Frameworks — symlink it next to the binary
         add_custom_command(TARGET angry-mapper POST_BUILD
-            COMMAND bash -c "mkdir -p ${CMAKE_SOURCE_DIR}/Frameworks && \
-                ln -sf ${SYPHON_FRAMEWORK} ${CMAKE_SOURCE_DIR}/Frameworks/Syphon.framework"
+            COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_SOURCE_DIR}/Frameworks
+            COMMAND ${CMAKE_COMMAND} -E create_symlink ${SYPHON_FRAMEWORK}
+                    ${CMAKE_SOURCE_DIR}/Frameworks/Syphon.framework
             COMMENT "Symlinking Syphon.framework for dyld"
         )
     endif()
