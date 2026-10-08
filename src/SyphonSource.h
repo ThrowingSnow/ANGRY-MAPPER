@@ -1,7 +1,7 @@
 #pragma once
 #ifdef __APPLE__
 
-#include <OpenGL/gl3.h>
+#include <GL/glew.h>   // must match the GL header main.cpp uses
 #include <string>
 #include <vector>
 #include <memory>
