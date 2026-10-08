@@ -15,6 +15,9 @@ APP="$DIST/ANGRY-MAPPER.app"
 ARCH="$(uname -m)"
 SYPHON_DIR="$HOME/Library/Frameworks/Syphon.framework"
 
+xcode-select -p >/dev/null 2>&1 || { echo "→ Installing Xcode Command Line Tools, re-run afterwards"; xcode-select --install; exit 1; }
+command -v brew >/dev/null || { echo "Homebrew missing: https://brew.sh"; exit 1; }
+
 brew install cmake ninja glfw glew dylibbundler
 
 # --- Syphon.framework ---
