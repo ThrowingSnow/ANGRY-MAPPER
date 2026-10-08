@@ -1,0 +1,64 @@
+name: macOS build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14        # Apple Silicon (arm64)
+          - runner: macos-15-intel  # Intel (x86_64)
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build ANGRY-MAPPER.app
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+          HOMEBREW_NO_INSTALL_CLEANUP: 1
+        run: ./scripts/build-macos.sh
+
+      - name: Check bundle links
+        run: |
+          otool -L dist/ANGRY-MAPPER.app/Contents/MacOS/angry-mapper
+          ! otool -L dist/ANGRY-MAPPER.app/Contents/MacOS/angry-mapper | grep -E '/(opt/homebrew|usr/local)/'
+          codesign --verify --deep --strict dist/ANGRY-MAPPER.app
+
+      - name: Check @rpath libraries resolve inside the bundle
+        run: |
+          BIN=dist/ANGRY-MAPPER.app/Contents/MacOS/angry-mapper
+          RPATHS=$(otool -l "$BIN" | awk '/cmd LC_RPATH/{f=1} f&&/ path /{print $2; f=0}')
+          echo "rpaths: $RPATHS"
+          for rp in $RPATHS; do
+            case "$rp" in @executable_path/*|@loader_path/*) ;; *) echo "::error::non-bundle rpath $rp"; exit 1;; esac
+          done
+          for lib in $(otool -L "$BIN" | awk 'NR>1 && $1 ~ /^@rpath\//{print $1}'); do
+            found=""
+            for rp in $RPATHS; do
+              p="${rp/@executable_path/$(dirname "$BIN")}/${lib#@rpath/}"
+              p="${p/@loader_path/$(dirname "$BIN")}"
+              [ -e "$p" ] && found="$p"
+            done
+            [ -n "$found" ] || { echo "::error::$lib not found in bundle"; exit 1; }
+            echo "$lib → $found"
+          done
+
+      - name: Check minimum macOS version (Intel → 10.13)
+        if: runner.arch == 'X64'
+        run: |
+          for bin in dist/ANGRY-MAPPER.app/Contents/MacOS/angry-mapper \
+                     dist/ANGRY-MAPPER.app/Contents/Frameworks/Syphon.framework/Syphon; do
+            min=$(otool -l "$bin" | awk '/LC_VERSION_MIN_MACOSX/{f=1} f&&/version/{print $2; exit} /LC_BUILD_VERSION/{g=1} g&&/minos/{print $2; exit}')
+            echo "$bin → macOS $min"
+            [ "$min" = "10.13" ] || { echo "::error::$bin needs macOS $min, expected 10.13"; exit 1; }
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ANGRY-MAPPER-macos-${{ runner.arch }}
+          path: dist/*.zip

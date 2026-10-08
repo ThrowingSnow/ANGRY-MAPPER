@@ -1,4 +1,9 @@
 cmake_minimum_required(VERSION 3.21)
+
+# Oldest macOS the app should run on (must be set before project()).
+# Ignored on other platforms.
+set(CMAKE_OSX_DEPLOYMENT_TARGET "10.13" CACHE STRING "Minimum macOS version")
+
 project(ANGRY-MAPPER VERSION 0.1.0 LANGUAGES CXX)
 
 if(APPLE)
@@ -51,8 +56,25 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(stb)
 
 find_package(OpenGL REQUIRED)
-find_package(GLEW   REQUIRED)
-find_package(glfw3 3.3 REQUIRED)
+if(APPLE)
+    # Build GLFW statically so it honours CMAKE_OSX_DEPLOYMENT_TARGET
+    # (Homebrew's dylib only runs on the macOS it was built for).
+    # No GLEW on macOS: the system GL framework exports all core functions.
+    FetchContent_Declare(
+        glfw
+        GIT_REPOSITORY https://github.com/glfw/glfw.git
+        GIT_TAG        3.4
+        GIT_SHALLOW    TRUE
+    )
+    set(GLFW_BUILD_DOCS     OFF CACHE INTERNAL "")
+    set(GLFW_BUILD_TESTS    OFF CACHE INTERNAL "")
+    set(GLFW_BUILD_EXAMPLES OFF CACHE INTERNAL "")
+    set(GLFW_INSTALL        OFF CACHE INTERNAL "")
+    FetchContent_MakeAvailable(glfw)
+else()
+    find_package(GLEW   REQUIRED)
+    find_package(glfw3 3.3 REQUIRED)
+endif()
 
 # NDI SDK — optional cross-platform (Linux + macOS + Windows)
 find_library(NDI_LIB ndi)
@@ -123,10 +145,13 @@ target_link_libraries(angry-mapper PRIVATE
     imgui_lib
     glfw
     OpenGL::GL
-    GLEW::GLEW
     nlohmann_json::nlohmann_json
     nfd
 )
+
+if(NOT APPLE)
+    target_link_libraries(angry-mapper PRIVATE GLEW::GLEW)
+endif()
 
 if(HAVE_NDI)
     target_sources(angry-mapper PRIVATE src/NDISource.cpp)
@@ -144,10 +169,15 @@ if(APPLE)
         set_source_files_properties(src/SyphonSource.mm PROPERTIES
             COMPILE_FLAGS "-fobjc-arc"
         )
-        # Syphon uses @loader_path/../Frameworks — symlink it next to the binary
+        # Syphon's install name is @rpath/Syphon.framework/... — look in the
+        # app bundle's Contents/Frameworks (and, for a plain build/ binary,
+        # in the Frameworks/ symlink created below)
+        set_property(TARGET angry-mapper APPEND PROPERTY
+            BUILD_RPATH "@executable_path/../Frameworks")
         add_custom_command(TARGET angry-mapper POST_BUILD
-            COMMAND bash -c "mkdir -p ${CMAKE_SOURCE_DIR}/Frameworks && \
-                ln -sf ${SYPHON_FRAMEWORK} ${CMAKE_SOURCE_DIR}/Frameworks/Syphon.framework"
+            COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_SOURCE_DIR}/Frameworks
+            COMMAND ${CMAKE_COMMAND} -E create_symlink ${SYPHON_FRAMEWORK}
+                    ${CMAKE_SOURCE_DIR}/Frameworks/Syphon.framework
             COMMENT "Symlinking Syphon.framework for dyld"
         )
     endif()

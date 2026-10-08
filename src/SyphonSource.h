@@ -1,7 +1,7 @@
 #pragma once
 #ifdef __APPLE__
 
-#include <OpenGL/gl3.h>
+#include "GL.h"
 #include <string>
 #include <vector>
 #include <memory>
