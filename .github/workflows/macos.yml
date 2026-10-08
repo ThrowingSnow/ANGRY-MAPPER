@@ -29,6 +29,25 @@ jobs:
           ! otool -L dist/ANGRY-MAPPER.app/Contents/MacOS/angry-mapper | grep -E '/(opt/homebrew|usr/local)/'
           codesign --verify --deep --strict dist/ANGRY-MAPPER.app
 
+      - name: Check @rpath libraries resolve inside the bundle
+        run: |
+          BIN=dist/ANGRY-MAPPER.app/Contents/MacOS/angry-mapper
+          RPATHS=$(otool -l "$BIN" | awk '/cmd LC_RPATH/{f=1} f&&/ path /{print $2; f=0}')
+          echo "rpaths: $RPATHS"
+          for rp in $RPATHS; do
+            case "$rp" in @executable_path/*|@loader_path/*) ;; *) echo "::error::non-bundle rpath $rp"; exit 1;; esac
+          done
+          for lib in $(otool -L "$BIN" | awk 'NR>1 && $1 ~ /^@rpath\//{print $1}'); do
+            found=""
+            for rp in $RPATHS; do
+              p="${rp/@executable_path/$(dirname "$BIN")}/${lib#@rpath/}"
+              p="${p/@loader_path/$(dirname "$BIN")}"
+              [ -e "$p" ] && found="$p"
+            done
+            [ -n "$found" ] || { echo "::error::$lib not found in bundle"; exit 1; }
+            echo "$lib → $found"
+          done
+
       - name: Check minimum macOS version (Intel → 10.13)
         if: runner.arch == 'X64'
         run: |

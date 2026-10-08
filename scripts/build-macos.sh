@@ -70,6 +70,15 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
+# Keep only the bundle-relative rpath; drop build-machine paths
+# (e.g. /Users/runner/Library/Frameworks) that CMake adds for linking.
+BIN="$APP/Contents/MacOS/angry-mapper"
+otool -l "$BIN" | awk '/cmd LC_RPATH/{f=1} f&&/ path /{print $2; f=0}' | while read -r rp; do
+    [[ "$rp" == "@executable_path/../Frameworks" ]] || install_name_tool -delete_rpath "$rp" "$BIN"
+done
+otool -l "$BIN" | grep -q "path @executable_path/../Frameworks " \
+    || install_name_tool -add_rpath @executable_path/../Frameworks "$BIN"
+
 # Ad-hoc sign (required on Apple Silicon)
 codesign --force --deep --sign - "$APP"
 

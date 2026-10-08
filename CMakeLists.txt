@@ -169,7 +169,11 @@ if(APPLE)
         set_source_files_properties(src/SyphonSource.mm PROPERTIES
             COMPILE_FLAGS "-fobjc-arc"
         )
-        # Syphon uses @loader_path/../Frameworks — symlink it next to the binary
+        # Syphon's install name is @rpath/Syphon.framework/... — look in the
+        # app bundle's Contents/Frameworks (and, for a plain build/ binary,
+        # in the Frameworks/ symlink created below)
+        set_property(TARGET angry-mapper APPEND PROPERTY
+            BUILD_RPATH "@executable_path/../Frameworks")
         add_custom_command(TARGET angry-mapper POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_SOURCE_DIR}/Frameworks
             COMMAND ${CMAKE_COMMAND} -E create_symlink ${SYPHON_FRAMEWORK}
